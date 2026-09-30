@@ -45,6 +45,8 @@ class SQLAgentState(TypedDict, total=False):
     final_explanation: Optional[str]
     # Error message if query generation or execution failed
     error: Optional[str]
+    # Number of query generation/execution attempts
+    retry_count: int
 
 
 # ---------------------------------------------------------
@@ -185,6 +187,15 @@ async def llm_generate_query_node(state: SQLAgentState) -> Dict[str, Any]:
     history = list(state.get("messages", []))
     prompt_messages = [SystemMessage(content=system_prompt)] + history
 
+    # If retrying due to an error from the previous query execution, provide the error context
+    if state.get("error") and state.get("sql_query"):
+        error_feedback = (
+            f"The previous query you generated was:\n{state.get('sql_query')}\n\n"
+            f"It resulted in the following database error:\n{state.get('error')}\n\n"
+            "Please fix the error and generate a corrected MySQL query. Return ONLY the raw SQL query."
+        )
+        prompt_messages.append(HumanMessage(content=error_feedback))
+
     response = await llm.ainvoke(prompt_messages)
     raw_sql = response.content.strip()
     cleaned_sql = clean_sql_query(raw_sql)
@@ -234,11 +245,13 @@ def _run_query_sync(sql: str) -> TableData:
 
 async def execute_query_node(state: SQLAgentState) -> Dict[str, Any]:
     """Execute Query Node: Runs generated SQL on MySQL database and formats result table."""
+    current_retry = state.get("retry_count", 0)
     sql = state.get("sql_query")
     if not sql:
         return {
             "result_table": None,
             "error": "No SQL query generated to execute.",
+            "retry_count": current_retry + 1,
         }
 
     safe_prefixes = ("SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH")
@@ -246,6 +259,7 @@ async def execute_query_node(state: SQLAgentState) -> Dict[str, Any]:
         return {
             "result_table": None,
             "error": "Only read-only SELECT queries are allowed for safety.",
+            "retry_count": current_retry + 1,
         }
 
     try:
@@ -259,6 +273,7 @@ async def execute_query_node(state: SQLAgentState) -> Dict[str, Any]:
         return {
             "result_table": None,
             "error": f"SQL Execution Error: {str(e)}",
+            "retry_count": current_retry + 1,
         }
 
 
@@ -302,6 +317,15 @@ def route_after_query_gen(state: SQLAgentState) -> str:
     return "explain_result"
 
 
+def route_after_execute(state: SQLAgentState) -> str:
+    """Decide whether to retry query generation on error (up to 1 retry) or proceed to explanation."""
+    if state.get("error"):
+        if state.get("retry_count", 0) <= 1:
+            return "generate_query"
+        return "explain_result"
+    return "explain_result"
+
+
 # ---------------------------------------------------------
 # Build StateGraph with InMemory Checkpointer
 # ---------------------------------------------------------
@@ -322,7 +346,14 @@ def create_sql_agent():
             "explain_result": "explain_result",
         },
     )
-    workflow.add_edge("execute_query", "explain_result")
+    workflow.add_conditional_edges(
+        "execute_query",
+        route_after_execute,
+        {
+            "generate_query": "generate_query",
+            "explain_result": "explain_result",
+        },
+    )
     workflow.add_edge("explain_result", END)
 
     checkpointer = MemorySaver()

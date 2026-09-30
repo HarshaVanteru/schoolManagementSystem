@@ -40,6 +40,10 @@ class ChatService:
         initial_state = {
             "question": message,
             "messages": [HumanMessage(content=message)],
+            "retry_count": 0,
+            "error": None,
+            "sql_query": None,
+            "result_table": None,
         }
 
         sql_query = None
@@ -104,16 +108,25 @@ class ChatService:
                         elif node_name == "execute_query":
                             result_table = update.get("result_table")
                             error_msg = update.get("error")
-                            yield _format_sse("table", {
-                                "type": "table",
-                                "result_table": result_table,
-                                "error": error_msg,
-                            })
-                            yield _format_sse("status", {
-                                "type": "status",
-                                "stage": "explaining",
-                                "message": "Generating natural language explanation...",
-                            })
+                            retry_cnt = update.get("retry_count", 0)
+
+                            if error_msg and retry_cnt <= 1:
+                                yield _format_sse("status", {
+                                    "type": "status",
+                                    "stage": "generating_query",
+                                    "message": f"Query execution failed: {error_msg}. Regenerating query...",
+                                })
+                            else:
+                                yield _format_sse("table", {
+                                    "type": "table",
+                                    "result_table": result_table,
+                                    "error": error_msg,
+                                })
+                                yield _format_sse("status", {
+                                    "type": "status",
+                                    "stage": "explaining",
+                                    "message": "Generating natural language explanation...",
+                                })
 
                         elif node_name == "explain_result":
                             final_expl = update.get("final_explanation")
@@ -144,6 +157,10 @@ class ChatService:
         initial_state = {
             "question": message,
             "messages": [HumanMessage(content=message)],
+            "retry_count": 0,
+            "error": None,
+            "sql_query": None,
+            "result_table": None,
         }
 
         # Run the agent through LangGraph

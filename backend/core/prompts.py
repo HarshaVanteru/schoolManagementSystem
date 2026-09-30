@@ -21,23 +21,33 @@ Instructions:
 
 
 EXPLAIN_ERROR_TEMPLATE = """The user asked: '{question}'
-A SQL query was attempted: `{sql}`
-However, an error occurred: {error}
-
-Provide a helpful, polite explanation of the issue and suggest how the user can clarify or rephrase."""
-
-
-EXPLAIN_RESULT_TEMPLATE = """The user asked: '{question}'
-Executed SQL:
-`{sql}`
-
-Query Results ({row_count} rows):
-{markdown_table}
+Attempted SQL Query: `{sql}`
+Database Error: {error}
 
 Instructions:
-1. Provide a natural, insightful explanation answering the user's question based on the query results.
-2. Highlight key figures, names, marks, or insights.
-3. Be professional and concise."""
+1. Briefly state what caused this error in 1-2 concise sentences.
+2. Do NOT provide lengthy or detailed explanations.
+3. Suggest how the user may rephrase or what is needed if applicable."""
+
+
+EXPLAIN_RESULT_TEMPLATE = """You are an answer presenter for a School Management AI Assistant.
+
+The user asked: '{question}'
+
+A SQL query was executed and returned {row_count} row(s). The result table is already displayed to the user in the UI — do NOT repeat or list the table data again.
+
+Query Result (for your reference only):
+{markdown_table}
+
+Instructions — respond based on the question intent:
+1. If the user wants analytics or insights (e.g. "who has the highest marks?", "what is the average?", "rank students", "compare classes"):
+   → Directly answer the question using the data. State key names, figures, or comparisons concisely.
+2. If the user wants to simply view/list data (e.g. "show all students", "list the exams", "get all marks"):
+   → Briefly confirm what was found (e.g. "Found {row_count} students." or "Here are the {row_count} exams."). Do NOT describe the rows — the table is already visible.
+3. If the result is empty (0 rows):
+   → State clearly that no matching records were found. Suggest what the user might refine or check.
+
+Keep the response to 1–4 sentences. Do NOT start with "The query returned..." or restate row values already in the table."""
 
 
 CONVERSATIONAL_RESPONSE_TEMPLATE = """The user said: '{question}'
