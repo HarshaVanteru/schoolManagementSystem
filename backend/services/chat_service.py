@@ -1,7 +1,9 @@
 import json
 import uuid
 import logging
-from typing import Optional, AsyncGenerator
+from decimal import Decimal
+from datetime import date, datetime, time
+from typing import Optional, AsyncGenerator, Any
 from langchain_core.messages import HumanMessage, AIMessageChunk
 from services.sql_agent import sql_agent
 from schemas.chat import ChatResponse, TableDataSchema
@@ -9,9 +11,20 @@ from schemas.chat import ChatResponse, TableDataSchema
 logger = logging.getLogger(__name__)
 
 
+def _json_serializer(obj: Any) -> Any:
+    """Fallback JSON serializer for types not natively handled by json.dumps."""
+    if isinstance(obj, Decimal):
+        return float(obj) if obj % 1 else int(obj)
+    if isinstance(obj, (date, datetime, time)):
+        return obj.isoformat()
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    return str(obj)
+
+
 def _format_sse(event: str, data: dict) -> str:
     """Formats an event and dictionary into a standard SSE string."""
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    return f"event: {event}\ndata: {json.dumps(data, default=_json_serializer)}\n\n"
 
 
 class ChatService:

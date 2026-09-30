@@ -104,3 +104,5 @@ ehthumbs_vista.db
 *~
 skills-lock.json
 .agents
+mysql
+backend/tests
